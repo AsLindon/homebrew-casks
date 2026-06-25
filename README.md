@@ -2,14 +2,14 @@
 
 ## How do I install these formulae?
 
-`brew install aslindon/homebrew-casks/<formula>`
+`brew install aslindon/casks/<formula>`
 
 Or `brew tap aslindon/casks` and then `brew install <formula>`.
 
 Or, in a `brew bundle` `Brewfile`:
 
 ```ruby
-tap "aslindon/homebrew-casks"
+tap "aslindon/casks"
 brew "<formula>"
 ```
 
