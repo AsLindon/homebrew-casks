@@ -1,0 +1,76 @@
+name: Update Brew Browser Native
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update cask
+        run: |
+          set -euo pipefail
+
+          CASK="Casks/brew-browser-native.rb"
+          REPO="msitarzewski/brew-browser"
+
+          json="$(curl -s "https://api.github.com/repos/$REPO/releases/latest")"
+
+          release_version="$(echo "$json" | jq -r '.tag_name | sub("^v"; "")')"
+          native_version="$(echo "$json" | jq -r '.assets[].name' | sed -nE 's/^BrewBrowser-([0-9.]+)-arm64\.dmg$/\1/p' | head -n1)"
+
+          if [ -z "$release_version" ] || [ -z "$native_version" ]; then
+            echo "Failed to detect versions"
+            exit 1
+          fi
+
+          arm_url="https://github.com/$REPO/releases/download/v${release_version}/BrewBrowser-${native_version}-arm64.dmg"
+          intel_url="https://github.com/$REPO/releases/download/v${release_version}/BrewBrowser-${native_version}-x86_64.dmg"
+
+          curl -L -o /tmp/brewbrowser-arm64.dmg "$arm_url"
+          curl -L -o /tmp/brewbrowser-x86_64.dmg "$intel_url"
+
+          arm_sha="$(shasum -a 256 /tmp/brewbrowser-arm64.dmg | awk '{print $1}')"
+          intel_sha="$(shasum -a 256 /tmp/brewbrowser-x86_64.dmg | awk '{print $1}')"
+
+          ruby <<RUBY
+          path = "$CASK"
+          text = File.read(path)
+
+          text.sub!(/version "[^"]+"/, %(version "#{release_version},#{native_version}"))
+
+          text.sub!(
+            /sha256 arm:\s+"[^"]+",\n\s+intel:\s+(?:"[^"]+"|:no_check)/,
+            %(sha256 arm:   "#{arm_sha}",\n       intel: "#{intel_sha}")
+          )
+
+          File.write(path, text)
+          RUBY
+
+      - name: Check diff
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: update-brew-browser-native
+          delete-branch: true
+          title: "Update brew-browser-native"
+          commit-message: "Update brew-browser-native"
+          body: "Automated update for Brew Browser Native cask."
