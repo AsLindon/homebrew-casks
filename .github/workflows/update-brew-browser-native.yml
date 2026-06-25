@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   update:
@@ -62,7 +61,6 @@ jobs:
 
           release = "$release_version"
           native = "$native_version"
-
           arm = "$arm_sha"
           intel = "$intel_sha"
 
@@ -93,14 +91,19 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create Pull Request
+      - name: Commit and push
         if: steps.diff.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: Update brew-browser-native
-          title: Update brew-browser-native
-          body: |
-            Automated update for Brew Browser Native.
-          branch: update-brew-browser-native
-          delete-branch: true
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Casks/brew-browser-native.rb
+
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Update brew-browser-native"
+          git push origin main
