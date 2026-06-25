@@ -25,7 +25,7 @@ cask "brew-browser-native" do
 
   depends_on macos: :tahoe
   
-  app "Brew Browser.app"
+  app "BrewBrowser.app"
 
   zap trash: [
     "~/Library/Application Support/Brew Browser",
