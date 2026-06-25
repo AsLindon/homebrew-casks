@@ -2,7 +2,7 @@ cask "brew-browser-native" do
   arch arm: "arm64", intel: "x86_64"
 
   version "0.6.0,0.2.0"
-  sha256 arm:   : "1de89e29b6b0746d3a93a9788e2f66be0197384bcd5e8ff6bf6795dd0c06b31a",
+  sha256 arm:"1de89e29b6b0746d3a93a9788e2f66be0197384bcd5e8ff6bf6795dd0c06b31a",
          intel: :no_check
 
   url "https://github.com/msitarzewski/brew-browser/releases/download/v#{version.csv.first}/BrewBrowser-#{version.csv.second}-#{arch}.dmg",
