@@ -1,0 +1,35 @@
+name: Update KCC
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 3 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update cask
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CASK="Casks/kcc.rb"
+          REPO="ciromattia/kcc"
+
+          json="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "User-Agent: homebrew-casks-updater" \
+            "https://api.github.com/repos/${REPO}/releases/latest")"
+
+          echo "$json" | jq -e '.
