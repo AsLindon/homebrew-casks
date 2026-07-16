@@ -8,14 +8,22 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: update-kcc
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
-      - name: Update cask
+      - name: Update KCC cask
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -25,5 +33,236 @@ jobs:
           CASK="Casks/kcc.rb"
           REPO="ciromattia/kcc"
 
-          json="$(curl -fsSL \
-            -H
+          if [[ ! -f "$CASK" ]]; then
+            echo "Cask file not found: $CASK"
+            exit 1
+          fi
+
+          echo "Fetching latest KCC release..."
+
+          release_json="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --retry 3 \
+              --retry-delay 2 \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "User-Agent: aslindon-homebrew-casks-updater" \
+              "https://api.github.com/repos/${REPO}/releases/latest"
+          )"
+
+          echo "$release_json" | jq -e '
+            .tag_name != null and
+            (.assets | type == "array")
+          ' >/dev/null
+
+          version="$(
+            echo "$release_json" |
+              jq -r '.tag_name | sub("^v"; "")'
+          )"
+
+          if [[ -z "$version" || "$version" == "null" ]]; then
+            echo "Unable to determine latest KCC version."
+            exit 1
+          fi
+
+          current_version="$(
+            sed -nE 's/^[[:space:]]*version "([^"]+)".*/\1/p' "$CASK" |
+              head -n 1
+          )"
+
+          if [[ -z "$current_version" ]]; then
+            echo "Unable to determine current version from $CASK."
+            exit 1
+          fi
+
+          echo "Current version: $current_version"
+          echo "Latest version:  $version"
+
+          arm_asset="kcc_macos_arm_${version}.dmg"
+          intel_asset="kcc_macos_i386_${version}.dmg"
+
+          arm_url="$(
+            echo "$release_json" |
+              jq -r \
+                --arg name "$arm_asset" \
+                '.assets[] | select(.name == $name) | .browser_download_url' |
+              head -n 1
+          )"
+
+          intel_url="$(
+            echo "$release_json" |
+              jq -r \
+                --arg name "$intel_asset" \
+                '.assets[] | select(.name == $name) | .browser_download_url' |
+              head -n 1
+          )"
+
+          if [[ -z "$arm_url" || "$arm_url" == "null" ]]; then
+            echo "ARM release asset not found: $arm_asset"
+            echo "Available assets:"
+            echo "$release_json" | jq -r '.assets[].name'
+            exit 1
+          fi
+
+          if [[ -z "$intel_url" || "$intel_url" == "null" ]]; then
+            echo "Intel release asset not found: $intel_asset"
+            echo "Available assets:"
+            echo "$release_json" | jq -r '.assets[].name'
+            exit 1
+          fi
+
+          temporary_directory="$(mktemp -d)"
+
+          cleanup() {
+            rm -rf "$temporary_directory"
+          }
+
+          trap cleanup EXIT
+
+          arm_file="${temporary_directory}/${arm_asset}"
+          intel_file="${temporary_directory}/${intel_asset}"
+
+          echo "Downloading ARM package: $arm_asset"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --retry 3 \
+            --retry-delay 2 \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "User-Agent: aslindon-homebrew-casks-updater" \
+            --output "$arm_file" \
+            "$arm_url"
+
+          echo "Downloading Intel package: $intel_asset"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --retry 3 \
+            --retry-delay 2 \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "User-Agent: aslindon-homebrew-casks-updater" \
+            --output "$intel_file" \
+            "$intel_url"
+
+          if [[ ! -s "$arm_file" ]]; then
+            echo "Downloaded ARM package is empty."
+            exit 1
+          fi
+
+          if [[ ! -s "$intel_file" ]]; then
+            echo "Downloaded Intel package is empty."
+            exit 1
+          fi
+
+          arm_sha="$(
+            shasum -a 256 "$arm_file" |
+              awk '{print $1}'
+          )"
+
+          intel_sha="$(
+            shasum -a 256 "$intel_file" |
+              awk '{print $1}'
+          )"
+
+          if [[ ! "$arm_sha" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid ARM SHA-256: $arm_sha"
+            exit 1
+          fi
+
+          if [[ ! "$intel_sha" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid Intel SHA-256: $intel_sha"
+            exit 1
+          fi
+
+          echo "ARM SHA-256:   $arm_sha"
+          echo "Intel SHA-256: $intel_sha"
+
+          VERSION="$version" \
+          ARM_SHA="$arm_sha" \
+          INTEL_SHA="$intel_sha" \
+          CASK_PATH="$CASK" \
+          ruby <<'RUBY'
+          path = ENV.fetch("CASK_PATH")
+          version = ENV.fetch("VERSION")
+          arm_sha = ENV.fetch("ARM_SHA")
+          intel_sha = ENV.fetch("INTEL_SHA")
+
+          text = File.read(path)
+
+          version_updated = text.sub!(
+            /^[ \t]*version "[^"]+"/,
+            %(  version "#{version}")
+          )
+
+          unless version_updated
+            abort "Unable to update version in #{path}."
+          end
+
+          sha_updated = text.sub!(
+            /^[ \t]*sha256 arm:[ \t]*(?:"[^"]+"|:no_check),[ \t]*\n[ \t]*intel:[ \t]*(?:"[^"]+"|:no_check)/,
+            %(  sha256 arm:   "#{arm_sha}",\n         intel: "#{intel_sha}")
+          )
+
+          unless sha_updated
+            abort "Unable to update SHA-256 block in #{path}."
+          end
+
+          File.write(path, text)
+          RUBY
+
+          echo "Updated cask contents:"
+          sed -n '1,15p' "$CASK"
+
+      - name: Check for changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- Casks/kcc.rb; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "KCC cask is already up to date."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "KCC cask has changed."
+            git diff -- Casks/kcc.rb
+          fi
+
+      - name: Commit and push to main
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(
+            sed -nE 's/^[[:space:]]*version "([^"]+)".*/\1/p' \
+              Casks/kcc.rb |
+              head -n 1
+          )"
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Casks/kcc.rb
+
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "Update kcc to ${version}"
+
+          git pull --rebase origin main
+          git push origin HEAD:main
