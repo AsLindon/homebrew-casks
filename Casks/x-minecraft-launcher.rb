@@ -16,5 +16,5 @@ cask "x-minecraft-launcher" do
     strategy :github_latest
   end
 
-  app "XMCL.app"
+  app "X Minecraft Launcher.app"
 end
