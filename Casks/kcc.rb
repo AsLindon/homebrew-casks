@@ -1,9 +1,9 @@
 cask "kcc" do
   arch arm: "arm", intel: "i386"
 
-  version "11.2.0"
-  sha256 arm:   "7c12f1336bd8fba4f0a3b8af277258fbae5f3519ef00426b823a66c73547e7e3",
-         intel: "6fc285191fa24ee6ec7c787da5670ff4785c07da5483d49ea46eadc274928130"
+  version "11.3.1"
+  sha256 arm:   "f8f8e3250c8f6e9aca1f73e2837faa8f576657d6a21ac7a80691d006554ea7ec",
+         intel: "c78450dfcfede23d7677c2594fc10996d5b4fd3715f27a52079f9d2e926e0a1f"
 
   url "https://github.com/ciromattia/kcc/releases/download/v#{version}/kcc_macos_#{arch}_#{version}.dmg",
       verified: "github.com/ciromattia/kcc/"
